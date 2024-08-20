@@ -22,7 +22,7 @@ std::vector<IntPair> Board::GetAvailableMoves() const
 	{
 		for (Uint column = 0; column < Board_size; ++column)
 		{
-			if (grid_[row][column] == Symbol::Empty)
+			if (grid_[row][column] == Empty)
 			{
 				moves.emplace_back(row, column);
 			}
@@ -33,7 +33,7 @@ std::vector<IntPair> Board::GetAvailableMoves() const
 
 void Board::UndoMove(const IntPair& position)
 {
-	grid_[position.first][position.second] = Symbol::Empty;
+	grid_[position.first][position.second] = Empty;
 }
 
 Board Board::Clone() const
@@ -66,24 +66,24 @@ Symbol Board::CheckWinner() const
 	// Check rows, columns, and diagonals
 	for (int i = 0; i < Board_size; ++i)
 	{
-		if (grid_[i][0] == grid_[i][1] && grid_[i][1] == grid_[i][2] && grid_[i][0] != Symbol::Empty)
+		if (grid_[i][0] == grid_[i][1] && grid_[i][1] == grid_[i][2] && grid_[i][0] != Empty)
 		{
 			return grid_[i][0];
 		}
-		if (grid_[0][i] == grid_[1][i] && grid_[1][i] == grid_[2][i] && grid_[0][i] != Symbol::Empty)
+		if (grid_[0][i] == grid_[1][i] && grid_[1][i] == grid_[2][i] && grid_[0][i] != Empty)
 		{
 			return grid_[0][i];
 		}
 	}
-	if (grid_[0][0] == grid_[1][1] && grid_[1][1] == grid_[2][2] && grid_[0][0] != Symbol::Empty)
+	if (grid_[0][0] == grid_[1][1] && grid_[1][1] == grid_[2][2] && grid_[0][0] != Empty)
 	{
 		return grid_[0][0];
 	}
-	if (grid_[0][2] == grid_[1][1] && grid_[1][1] == grid_[2][0] && grid_[0][2] != Symbol::Empty)
+	if (grid_[0][2] == grid_[1][1] && grid_[1][1] == grid_[2][0] && grid_[0][2] != Empty)
 	{
 		return grid_[0][2];
 	}
-	return Symbol::Empty;
+	return Empty;
 }
 
 

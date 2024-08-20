@@ -1,7 +1,6 @@
 #include <cmath>
 #include <limits>
 #include <cstdlib>
-#include <ctime>
 
 #include "Board.h"
 #include "common.h"
@@ -9,118 +8,143 @@
 using namespace TICTACTOE;
 
 
-bool Node::IsFullyExpanded() const
+bool TreeNode::IsFullyExpanded() const
 {
 	return children_.size() == board_.GetAvailableMoves().size();
 }
 
-Node* Node::BestChild() const
+std::shared_ptr<TreeNode> TreeNode::GetChildForMove(const IntPair move) const
 {
-	Node* best = nullptr;
-	double bestValue = -std::numeric_limits<double>::infinity();
-	for (Node* child : children_)
+	for (const auto& child : children_)
 	{
-		const double uctValue = static_cast<double>(child->wins_) / (child->visits_ + 1)
-			+ sqrt(2 * log(visits_ + 1) / (child->visits_ + 1));
-		if (uctValue > bestValue)
+		if (child->move_ == move)
 		{
-			bestValue = uctValue;
-			best = child;
+			return child;
 		}
 	}
-	return best;
+	return nullptr;
 }
 
+std::shared_ptr<TreeNode> TreeNode::AddChild(IntPair move)
+{
+	Board newBoard = board_;
+	newBoard.PlaceSymbol(move, current_player_);
+	auto child = make_shared<TreeNode>(newBoard, shared_from_this(), move, GetOtherSymbol(Cross));
+	children_.push_back(child);
+	return child;
+}
+
+Symbol TreeNode::GetOtherSymbol(const Symbol symbol)
+{
+	return symbol == Cross ? Oh : Cross;
+}
+
+
+double MonteCarloStrategy::UctValue(const int totalVisits, const int nodeVisits, const double nodeWins)
+{
+	if (nodeVisits == 0)
+		return std::numeric_limits<double>::infinity();
+
+	return (nodeWins / nodeVisits) + sqrt(2 * log(totalVisits) / nodeVisits);
+}
 
 Symbol MonteCarloStrategy::GetOtherSymbol(const Symbol symbol)
 {
-	return symbol == Symbol::Cross ? Symbol::Oh : Symbol::Cross;
+	return symbol == Cross ? Oh : Cross;
 }
 
-Node* MonteCarloStrategy::Select(Node* node)
+std::shared_ptr<TreeNode> MonteCarloStrategy::Select(std::shared_ptr<TreeNode> node)
 {
-	while (node->board_.CheckWinner() == Symbol::Empty && !node->board_.IsFull())
+	while (!node->board_.IsFull() && node->board_.CheckWinner() == Empty)
 	{
-		if (!node->IsFullyExpanded())
+		if (node->IsFullyExpanded())
 		{
-			return Expand(node);
+			std::shared_ptr<TreeNode> bestChild = nullptr;
+			double bestValue = std::numeric_limits<double>::min();
+			for (const auto& child : node->children_)
+			{
+				if (const double value = UctValue(node->visits_, child->visits_, child->wins_); value > bestValue)
+				{
+					bestValue = value;
+					bestChild = child;
+				}
+			}
+			node = bestChild;
 		}
 		else
 		{
-			node = node->BestChild();
+			return Expand(node);
 		}
 	}
 	return node;
 }
 
-Node* MonteCarloStrategy::Expand(Node* node)
+std::shared_ptr<TreeNode> MonteCarloStrategy::Expand(std::shared_ptr<TreeNode> node)
 {
-	for (const auto availableMoves = node->board_.GetAvailableMoves(); const auto& move : availableMoves)
+	const auto availableMoves = node->board_.GetAvailableMoves();
+	for (const auto& move : availableMoves)
 	{
-		bool found = false;
-		for (const auto& child : node->children_)
+		if (node->GetChildForMove(move) == nullptr)
 		{
-			if (child->move_ == move)
-			{
-				found = true;
-				break;
-			}
-		}
-		if (!found)
-		{
-			Board newBoard = node->board_.Clone();
-			newBoard.PlaceSymbol(move, current_player_);
-			const auto childNode = new Node(newBoard, node, move);
-			node->children_.push_back(childNode);
-			return childNode;
+			return node->AddChild(move);
 		}
 	}
-	return nullptr; // This should never happen
+	return nullptr;
 }
 
-int MonteCarloStrategy::Simulate(Board board) const
+
+double MonteCarloStrategy::Simulate(Board board) const
 {
+	std::random_device rd; // a seed source for the random number engine
+	std::mt19937 gen(rd());
+
 	auto currentPlayer = current_player_;
-	while (board.CheckWinner() == Symbol::Empty && !board.IsFull())
+	while (!board.IsFull() && board.CheckWinner() == Empty)
 	{
 		auto availableMoves = board.GetAvailableMoves();
-		std::pair<int, int> randomMove = availableMoves[std::rand() % availableMoves.size()];
-		board.PlaceSymbol(randomMove, currentPlayer);
- 		currentPlayer = GetOtherSymbol(currentPlayer);
-	}
+		std::uniform_int_distribution<> dist(0, static_cast<int>(availableMoves.size() - 1));
 
-	if (board.CheckWinner(current_player_)) return 1;
-	if (board.CheckWinner(GetOtherSymbol(current_player_))) return -1;
-	return 0;
+		auto randomMove = availableMoves[dist(gen)];
+		board.PlaceSymbol(randomMove, currentPlayer);
+		currentPlayer = GetOtherSymbol(currentPlayer);
+	}
+	const auto winner = board.CheckWinner();
+	if (winner == Cross) return 1.0;
+	if (winner == Oh) return 0.0;
+	return 0.5; // Draw
 }
 
-void MonteCarloStrategy::BackPropagate(Node* node, const int result)
+void MonteCarloStrategy::BackPropagate(std::shared_ptr<TreeNode> node, double result)
 {
-	while (node != nullptr)
+	while (node)
 	{
 		node->visits_++;
 		node->wins_ += result;
-		node = node->parent_;
+		node = node->parent_.lock(); // Convert weak_ptr to shared_ptr
 	}
 }
 
+
 IntPair MonteCarloStrategy::GetBestMove(Board& board)
 {
-	const auto root = new Node(board);
-	srand(static_cast<unsigned>(time(nullptr)));
+	root_ = std::make_shared<TreeNode>(board);
 
 	for (int i = 0; i < Simulation_count; ++i)
 	{
-		Node* node = Select(root);
-		const int result = Simulate(node->board_);
-		BackPropagate(node, result);
+		const auto selectedNode = Select(root_);
+		const double result = Simulate(selectedNode->board_);
+		BackPropagate(selectedNode, result);
 	}
 
-	const Node* bestChild = root->BestChild();
-	const auto bestMove =  bestChild ? bestChild->move_ : std::make_pair(-1, -1);
-
-	// Cleanup
-	delete root;
-
-	return bestMove;
+	std::shared_ptr<TreeNode> bestChild = nullptr;
+	double bestWinRatio = std::numeric_limits<double>::min();
+	for (const auto& child : root_->children_)
+	{
+		if (const double winRatio = child->wins_ / child->visits_; winRatio > bestWinRatio)
+		{
+			bestWinRatio = winRatio;
+			bestChild = child;
+		}
+	}
+	return bestChild ? bestChild->move_ : std::make_pair(-1, -1);
 }
